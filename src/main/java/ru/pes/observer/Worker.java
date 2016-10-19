@@ -1,6 +1,7 @@
 package ru.pes.observer;
 
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.log4j.Logger;
@@ -8,9 +9,12 @@ import ru.pes.observer.db.*;
 import ru.pes.observer.db.Observer;
 import ru.pes.observer.db.utils.DBService;
 import ru.pes.observer.object.Decoder;
+import ru.pes.observer.object.Message;
 import ru.pes.observer.object.Sensor;
+import ru.pes.observer.object.User;
 
 import java.io.*;
+import java.lang.reflect.Type;
 import java.net.Socket;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -26,6 +30,7 @@ public class Worker implements Runnable {
     private BufferedReader in = null;
     private PrintWriter out = null;
     private Gson gson;
+    private ArrayList<Object> aList;
     private final String OK = "ok";
     private final String ERR = "err";
     private HashMap<String, SensorDB> sensors = new HashMap<>();
@@ -51,11 +56,14 @@ public class Worker implements Runnable {
         while (run) {
             try {
                 line = in.readLine();
+                System.out.println(line);
                 String mess = readMessage(line); // Пытаемся прочитать входящее сообщение
-                if (mess != ERR) {
+                if (!mess.equalsIgnoreCase(ERR)) {
                     run = false; //Если удалось прочитать сообщение останавливаем поток
+                    out.println("OK");
                     break;
                 } else {
+                    out.println("ERR");
                     break;
                 }
 
@@ -89,26 +97,39 @@ public class Worker implements Runnable {
         int hash;
         Sensor sensor;
         try {
-            sensor = gson.fromJson(strJson, Sensor.class);// Получаем объект Sensora из JSON объекта
-            hash = sensor.getAddress().hashCode() + sensor.getData().hashCode() + sensor.getDate().hashCode();// Проверяем что полученны корректные данные
-            if (hash == sensor.getHash()) {
-                out.println(OK); // Если хеш суммы совпадают отправляем на клиент ответ об удачной доставке
-                for (String s : sensor.getData()) {
-                    decodeMsg(s, sensor.getDate()); // Расшифровываем входящее сообщение
+            Message message = gson.fromJson(strJson, Message.class);// Получаем объект Sensora из JSON объекта
+            if (message.getType().toString().equalsIgnoreCase("SEN")) {
+                sensor = gson.fromJson(message.getData(), Sensor.class);
+                System.out.println(sensor);
+                hash = sensor.getAddress().hashCode() + sensor.getData().hashCode() + sensor.getDate().hashCode();// Проверяем что полученны корректные данные
+                if (hash == sensor.getHash()) {
+                    for (String s : sensor.getData()) {
+                        if (s != null) {
+                            decodeMsg(s, sensor.getDate()); // Расшифровываем входящее сообщение
+                        }
+                    }
+                    observer = new Observer(sensor.getAddress(), sensors);
+                    DBService.SaveToDB(observer);
+                    System.out.println(observer);
+                    return OK;
+                } else {
+                    System.out.println(hash);
+                    System.out.println(sensor.getHash());
+                    System.out.println(ERR);
+                    return ERR;
                 }
-                return OK;
-            } else {
-                System.out.println(hash);
-                System.out.println(sensor.getHash());
-                System.out.println(ERR);
-                out.println(ERR); // Если хеш не совпадает запрашиваем у клиента еще 1 отправку
-                return ERR;
+            } else if (message.getType().toString().equalsIgnoreCase("SUP")) {
+                User user = gson.fromJson(message.getData(), User.class);
+                return DBService.recordUser(user.getName(), user.getPassword()) > 0 ? OK : ERR;
+            } else if (message.getType().toString().equalsIgnoreCase("SIN")) {
+                User user = gson.fromJson(message.getData(), User.class);
+                return DBService.checkUser(user.getName(), user.getPassword()) > 0 ? OK : ERR;
             }
         } catch (Exception e) {
             logger.error("Can't read: " + strJson, e);
-            out.println(ERR);
             return ERR;
         }
+        return ERR;
     }
 
     /**
@@ -153,14 +174,10 @@ public class Worker implements Runnable {
         for (int i = 14; i < 18; i++) {
             ltime = ltime + string[i];
         }
-        // Время первого срабатывания
-        for (int i = 18; i < 22; i++) {
-            ftime = ftime + string[i];
-        }
         // SensorDB - объект для записи в БД
-        SensorDB sensorDB = new SensorDB(Integer.parseInt(type, 16), Integer.parseInt(state, 16), Integer.parseInt(count, 16), getCorrectDate(ftime, date), getCorrectDate(ltime, date));
+        SensorDB sensorDB = new SensorDB(Integer.parseInt(type, 16), Integer.parseInt(state, 16), Integer.parseInt(count, 16), getCorrectDate(ltime, date));
         sensors.put(id, sensorDB);
-        System.out.println("id: " + id + "; state: " + Integer.parseInt(state, 16) + "; count: " + Integer.parseInt(count, 16) + "; last time: " + getCorrectDate(ltime, date) + "; first time: " + getCorrectDate(ftime, date));
+        System.out.println("id: " + id + "; state: " + Integer.parseInt(state, 16) + "; count: " + Integer.parseInt(count, 16) + "; last time: " + getCorrectDate(ltime, date));
         return all;
     }
 
