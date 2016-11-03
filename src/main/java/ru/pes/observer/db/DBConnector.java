@@ -5,9 +5,7 @@ import ru.pes.observer.db.utils.DBService;
 
 import java.sql.*;
 
-/**
- * Created by Admin on 14.06.2016.
- */
+
 public class DBConnector {
     private static final Logger logger = Logger.getLogger(DBConnector.class);
     private static Connection conn;

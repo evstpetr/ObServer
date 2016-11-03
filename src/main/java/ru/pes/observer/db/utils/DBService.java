@@ -8,9 +8,7 @@ import ru.pes.observer.db.SensorDB;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Created by Admin on 14.06.2016.
- */
+
 public class DBService {
     private static final Logger logger = Logger.getLogger(DBService.class);
 
